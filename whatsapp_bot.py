@@ -4,6 +4,7 @@ from datetime import datetime
 import schedule
 import time
 from flask import Flask, request, abort
+from filelock import FileLock
 
 try:
     from twilio.rest import Client
@@ -16,6 +17,7 @@ WHATSAPP_NUMBER = os.getenv("WHATSAPP_NUMBER")  # 'whatsapp:+14155238886'
 GROUP_NUMBER = os.getenv("GROUP_NUMBER")        # recipient group or user number
 
 PROPOSALS_FILE = "proposals.json"
+PROPOSALS_LOCK = PROPOSALS_FILE + ".lock"
 
 # Emoji used for voting
 THUMBS_UP = "\U0001F44D"
@@ -24,15 +26,21 @@ THUMBS_DOWN = "\U0001F44E"
 app = Flask(__name__)
 
 def load_proposals():
-    if os.path.exists(PROPOSALS_FILE):
-        with open(PROPOSALS_FILE, "r") as f:
-            return json.load(f)
-    return []
+    """Load proposals from disk with a file lock."""
+    lock = FileLock(PROPOSALS_LOCK)
+    with lock:
+        if os.path.exists(PROPOSALS_FILE):
+            with open(PROPOSALS_FILE, "r") as f:
+                return json.load(f)
+        return []
 
 
 def save_proposals(proposals):
-    with open(PROPOSALS_FILE, "w") as f:
-        json.dump(proposals, f)
+    """Save proposals to disk with a file lock."""
+    lock = FileLock(PROPOSALS_LOCK)
+    with lock:
+        with open(PROPOSALS_FILE, "w") as f:
+            json.dump(proposals, f)
 
 
 def send_whatsapp_message(body: str):
