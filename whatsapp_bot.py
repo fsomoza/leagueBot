@@ -1,0 +1,125 @@
+import os
+import json
+from datetime import datetime
+import schedule
+import time
+from flask import Flask, request, abort
+
+try:
+    from twilio.rest import Client
+except ImportError:  # Twilio not installed in environment
+    Client = None
+
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+WHATSAPP_NUMBER = os.getenv("WHATSAPP_NUMBER")  # 'whatsapp:+14155238886'
+GROUP_NUMBER = os.getenv("GROUP_NUMBER")        # recipient group or user number
+
+PROPOSALS_FILE = "proposals.json"
+
+app = Flask(__name__)
+
+def load_proposals():
+    if os.path.exists(PROPOSALS_FILE):
+        with open(PROPOSALS_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+
+def save_proposals(proposals):
+    with open(PROPOSALS_FILE, "w") as f:
+        json.dump(proposals, f)
+
+
+def send_whatsapp_message(body: str):
+    """Send a message via Twilio WhatsApp API."""
+    if Client is None:
+        print(f"Would send: {body}")
+        return
+    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+    client.messages.create(body=body, from_=WHATSAPP_NUMBER, to=GROUP_NUMBER)
+
+
+def propose(date_str: str, time_str: str, proposer: str):
+    proposals = load_proposals()
+    proposal_id = len(proposals) + 1
+    proposals.append({
+        "id": proposal_id,
+        "date": date_str,
+        "time": time_str,
+        "yes_votes": [],
+        "confirmed": False,
+        "proposer": proposer,
+    })
+    save_proposals(proposals)
+    send_whatsapp_message(
+        f"Proposal {proposal_id}: {date_str} {time_str} by {proposer}\n"
+        f"Reply 'vote {proposal_id} yes' to approve."
+    )
+
+
+def vote(proposal_id: int, user: str):
+    proposals = load_proposals()
+    for p in proposals:
+        if p["id"] == proposal_id:
+            if user not in p["yes_votes"]:
+                p["yes_votes"].append(user)
+                save_proposals(proposals)
+                if len(p["yes_votes"]) >= 5 and not p["confirmed"]:
+                    p["confirmed"] = True
+                    save_proposals(proposals)
+                    send_whatsapp_message(
+                        f"Date confirmed: {p['date']} {p['time']}".
+                        strip()
+                    )
+            return
+    send_whatsapp_message(f"Proposal {proposal_id} not found.")
+
+
+def daily_reminder():
+    proposals = load_proposals()
+    for p in proposals:
+        if p.get("confirmed"):
+            send_whatsapp_message(
+                f"Reminder: {p['date']} {p['time']} (proposal {p['id']})"
+            )
+
+
+@app.route("/whatsapp", methods=["POST"])
+def whatsapp_webhook():
+    body = request.values.get("Body", "").strip()
+    user = request.values.get("From", "")
+    tokens = body.split()
+    if not tokens:
+        abort(400)
+
+    command = tokens[0].lower()
+    if command == "propose" and len(tokens) >= 3:
+        date_str = tokens[1]
+        time_str = tokens[2]
+        propose(date_str, time_str, user)
+    elif command == "vote" and len(tokens) >= 3:
+        try:
+            proposal_id = int(tokens[1])
+        except ValueError:
+            send_whatsapp_message("Invalid proposal id")
+            return "", 200
+        if tokens[2].lower() == "yes":
+            vote(proposal_id, user)
+    return "", 200
+
+
+def run_scheduler():
+    schedule.every().day.at("14:00").do(daily_reminder)
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    # Example usage: python whatsapp_bot.py runserver
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "runserver":
+        app.run(host="0.0.0.0", port=5000)
+    else:
+        run_scheduler()
