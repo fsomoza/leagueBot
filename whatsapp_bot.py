@@ -17,6 +17,10 @@ GROUP_NUMBER = os.getenv("GROUP_NUMBER")        # recipient group or user number
 
 PROPOSALS_FILE = "proposals.json"
 
+# Emoji used for voting
+THUMBS_UP = "\U0001F44D"
+THUMBS_DOWN = "\U0001F44E"
+
 app = Flask(__name__)
 
 def load_proposals():
@@ -48,31 +52,45 @@ def propose(date_str: str, time_str: str, proposer: str):
         "date": date_str,
         "time": time_str,
         "yes_votes": [],
+        "no_votes": [],
         "confirmed": False,
         "proposer": proposer,
     })
     save_proposals(proposals)
     send_whatsapp_message(
         f"Proposal {proposal_id}: {date_str} {time_str} by {proposer}\n"
-        f"Reply 'vote {proposal_id} yes' to approve."
+        f"Reply 'vote {proposal_id} {THUMBS_UP}' to approve or 'vote {proposal_id} {THUMBS_DOWN}' to reject."
     )
 
 
-def vote(proposal_id: int, user: str):
+def vote(proposal_id: int, user: str, is_yes: bool):
     proposals = load_proposals()
     for p in proposals:
         if p["id"] == proposal_id:
-            if user not in p["yes_votes"]:
-                p["yes_votes"].append(user)
+            yes_votes = p.setdefault("yes_votes", [])
+            no_votes = p.setdefault("no_votes", [])
+
+            if is_yes:
+                if user not in yes_votes:
+                    yes_votes.append(user)
+                if user in no_votes:
+                    no_votes.remove(user)
+            else:
+                if user not in no_votes:
+                    no_votes.append(user)
+                if user in yes_votes:
+                    yes_votes.remove(user)
+
+            save_proposals(proposals)
+
+            if len(yes_votes) >= 5 and not p.get("confirmed"):
+                p["confirmed"] = True
                 save_proposals(proposals)
-                if len(p["yes_votes"]) >= 5 and not p["confirmed"]:
-                    p["confirmed"] = True
-                    save_proposals(proposals)
-                    send_whatsapp_message(
-                        f"Date confirmed: {p['date']} {p['time']}".
-                        strip()
-                    )
+                send_whatsapp_message(
+                    f"Date confirmed: {p['date']} {p['time']}"
+                )
             return
+
     send_whatsapp_message(f"Proposal {proposal_id} not found.")
 
 
@@ -104,8 +122,12 @@ def whatsapp_webhook():
         except ValueError:
             send_whatsapp_message("Invalid proposal id")
             return "", 200
-        if tokens[2].lower() == "yes":
-            vote(proposal_id, user)
+
+        vote_token = tokens[2]
+        if vote_token.lower() == "yes" or vote_token.startswith(THUMBS_UP):
+            vote(proposal_id, user, True)
+        elif vote_token.lower() == "no" or vote_token.startswith(THUMBS_DOWN):
+            vote(proposal_id, user, False)
     return "", 200
 
 
