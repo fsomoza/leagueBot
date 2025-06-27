@@ -2,7 +2,7 @@
 
 This repository contains a simple example bot that can be used in a WhatsApp group.
 It allows members to propose dates and times, vote on proposals, and once five
-"yes" votes are received the proposed date is confirmed. The bot also sends a
+thumbs-up votes are received the proposed date is confirmed. The bot also sends a
 daily reminder at 14:00 for any confirmed dates.
 
 The implementation uses a small Flask application that receives incoming
@@ -59,8 +59,8 @@ propose 2024-05-20 18:00
 - Vote for a proposal:
 
 ```
-vote 1 yes
+vote 1 👍
 ```
 
-Once a proposal receives five `yes` votes it is confirmed and an announcement is
+Once a proposal receives five thumbs-up votes it is confirmed and an announcement is
 sent to the group.
