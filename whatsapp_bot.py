@@ -1,6 +1,5 @@
 import os
 import json
-from datetime import datetime
 import schedule
 import time
 from flask import Flask, request, abort
